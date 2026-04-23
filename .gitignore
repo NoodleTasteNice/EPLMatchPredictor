@@ -14,12 +14,6 @@ dist/
 build/
 .pytest_cache/
 
-# Data - tracked by DVC instead
-data/
-*.csv
-*.json
-*.parquet
-
 # Logs
 logs/
 *.log
