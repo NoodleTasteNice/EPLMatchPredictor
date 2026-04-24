@@ -42,3 +42,9 @@ Thumbs.db
 # IDEs
 .vscode/
 .idea/
+
+# data files 
+data/
+*.csv
+*.parquet
+*.json
