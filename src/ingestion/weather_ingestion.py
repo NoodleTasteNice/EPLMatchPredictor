@@ -13,7 +13,8 @@ def get_weather(lat, lon, match_date):
     if lat is None or lon is None:
         logger.warning(f"no location provided for match on {date_str}")
         return {
-            "location": None,
+            "latitude": None,
+            "longitude": None,
             "match_date": date_str,
             "temp_min": None,
             "temp_max": None,
@@ -35,7 +36,8 @@ def get_weather(lat, lon, match_date):
     r = requests.get(weather_url, params=weather_params).json()
     
     return {
-        "coordinates": (lat, lon),
+        "latitude": lat,
+        "longitude": lon,
         "match_date": date_str,
         "temp_min": r["daily"]["temperature_2m_min"][0],
         "temp_max": r["daily"]["temperature_2m_max"][0],
@@ -48,18 +50,18 @@ def get_all_historical_weather(season):
 
     script_dir = Path(__file__).resolve().parent
     root_dir = script_dir.parent.parent
-    target_dir = root_dir / "data" / 'silver' / "mapped_fb_data" / f'season_{season}.csv'
+    target_dir = root_dir / "data" / 'silver' / "cleaned_fb_data" / f'season_{season}.csv'
     save_dir = root_dir / "data" / 'bronze' / "weather_data" / f'season_{season}.csv'
     save_dir.parent.mkdir(parents=True, exist_ok=True)
 
     df = pd.read_csv(target_dir)
     print(f"read {season} file")
     for id, row in df.iterrows():
-        home = row['HomeTeam']
-        away = row['AwayTeam']
-        lat = row['Latitude']
-        lon = row['Longitude']
-        date = pd.to_datetime(row['Date'], dayfirst=True)
+        home = row['home_team']
+        away = row['away_team']
+        lat = row['latitude']
+        lon = row['longitude']
+        date = pd.to_datetime(row['match_date'])
         print(f'processing {home} vs {away} on {date}')
 
         # get the weather for the location
