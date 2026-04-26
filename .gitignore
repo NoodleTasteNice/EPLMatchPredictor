@@ -33,6 +33,7 @@ airflow.cfg
 airflow.db
 
 # MLflow
+mlflow.db
 mlruns/
 
 # OS
