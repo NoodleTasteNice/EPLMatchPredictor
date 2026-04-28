@@ -175,13 +175,13 @@ def get_h2h(all_seasons_df):
 
     return df
 
-def save_gold(df, season):
+def save_gold(df):
     script_dir = Path(__file__).resolve().parent
     root_dir = script_dir.parent.parent
-    save_path = root_dir / "data" / "gold" / "match_features" / f"season_{season}.csv"
+    save_path = root_dir / "data" / "gold" / "match_features" / f"all_matches.csv"
     save_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(save_path, index=False)
-    logger.info(f"saved {len(df)} rows to gold/match_features/season_{season}.csv")
+    logger.info(f"saved {len(df)} rows to gold/match_features/all_matches.csv")
 
 def run(mode='current'):
     script_dir = Path(__file__).resolve().parent
@@ -206,11 +206,9 @@ def run(mode='current'):
     # calculate h2h across all seasons
     combined_df = get_h2h(combined_df)
 
-    # feature engineering per season and save per season
-    for season in seasons:
-        season_df = combined_df[combined_df['season'] == season].copy()
-        season_df = create_features(season_df)
-        save_gold(season_df, season)
+    # feature engineering 
+    res = create_features(combined_df)
+    save_gold(res)
 
 if __name__ == '__main__':
     run(mode='historical')
