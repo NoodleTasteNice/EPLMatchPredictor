@@ -133,6 +133,8 @@ def create_features(df):
 ]
     df[rolling_cols] = df[rolling_cols].fillna(0)
 
+    df['total_goals'] = df['ft_home_goals'].astype(int) + df['ft_away_goals'].astype(int)
+
     logger.info("feature engineering complete")
     return df
 
