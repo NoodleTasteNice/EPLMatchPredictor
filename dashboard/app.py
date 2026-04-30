@@ -10,7 +10,8 @@ import duckdb
 
 # paths
 ROOT = Path(__file__).resolve().parent.parent
-MODEL_PATH = ROOT / "models" / "random_forest.pkl"
+RF_MODEL_PATH = ROOT / "models" / "random_forest.pkl"
+REGRESSOR_MODEL_PATH = ROOT / "models" / "random_forest.pkl"
 GOLD_PATH = ROOT / "data" / "gold" / "match_features" / "all_matches.csv"
 DB_PATH = ROOT / "data" / "gold" / "matches.duckdb"
 
@@ -33,7 +34,9 @@ FEATURES = [
 # load data
 @st.cache_resource
 def load_model():
-    return joblib.load(MODEL_PATH)
+    rf_model = joblib.load(ROOT / "models" / "random_forest.pkl")
+    regressor_model = joblib.load(ROOT / "models" / "goals_regressor.pkl")
+    return rf_model, regressor_model
 
 @st.cache_data
 def load_gold_data():
@@ -102,7 +105,7 @@ def get_weather(lat, lon, match_date):
     except Exception:
         return 
     
-def make_prediction(model, home_row, away_row, weather):
+def predict_winner(model, home_row, away_row, weather):
     feature_vector = pd.DataFrame([{
         'home_rolling_points': home_row['points'],
         'away_rolling_points': away_row['points'],
@@ -123,6 +126,24 @@ def make_prediction(model, home_row, away_row, weather):
     prob_dict = dict(zip(model.classes_, probabilities))
     return prediction, prob_dict
 
+def predict_total_goals(model, home_row, away_row, weather):
+    feature_vector = pd.DataFrame([{
+        'home_rolling_points': home_row['points'],
+        'away_rolling_points': away_row['points'],
+        'home_rolling_goals': home_row['goals'],
+        'away_rolling_goals': away_row['goals'],
+        'home_rolling_sot': home_row['sot'],
+        'away_rolling_sot': away_row['sot'],
+        'home_rest_days': home_row['rest_days'],      
+        'away_rest_days': away_row['rest_days'],
+        'h2h_home_win_rate': home_row['h2h_win_rate'],
+        'temp_max': weather['temp_max'],
+        'precipitation_mm': weather['precipitation_mm'],
+        'windspeed_kmh': weather['windspeed_kmh'],
+    }])
+
+    predicted_sum = model.predict(feature_vector)[0]
+    return predicted_sum
 # ── ui ─────────────────────────────────────────────────
 def main():
 
@@ -157,7 +178,7 @@ def main():
             return
 
         with st.spinner("Fetching data and making prediction..."):
-            model = load_model()
+            rf_model, regressor_model = load_model()
 
             home_features = get_team_stats(df, home_team)
             away_features = get_team_stats(df, away_team)
@@ -167,13 +188,16 @@ def main():
             weather = get_weather(lat, lon, match_date)
 
             # make prediction
-            prediction, prob_dict = make_prediction(
-                model, home_features, away_features, weather
+            prediction, prob_dict = predict_winner(
+                rf_model, home_features, away_features, weather
             )
 
-        # ── prediction result ──
+            total_goals_pred = predict_total_goals(
+                regressor_model, home_features, away_features, weather
+            )
+
         st.divider()
-        st.subheader("Prediction")
+        st.subheader("Match Predicton")
 
         result_map = {
             'H': f"{home_team} Win",
@@ -200,6 +224,14 @@ def main():
 
         # highlight prediction
         st.success(f"**Predicted Result: {result_map[prediction]}**")
+
+        st.markdown("---")
+        st.subheader("Goals Prediction")
+        
+        st.metric(
+            label="Predicted Total Goals", 
+            value=f"{total_goals_pred:.2f}"
+        )
 
         # ── weather ──
         st.divider()
