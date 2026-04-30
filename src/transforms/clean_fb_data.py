@@ -54,23 +54,22 @@ def map_team_names(fixtures_df, stadiums_df):
         logger.warning(f"low confidence match: '{team_name}' to '{match}' (score: {score})")
         return None 
     
-    fixtures_df['mapped_team'] = fixtures_df['HomeTeam'].apply(find_best_match)
-    
+    fixtures_df['mapped_home_team'] = fixtures_df['HomeTeam'].apply(find_best_match)
+    fixtures_df['mapped_away_team'] = fixtures_df['AwayTeam'].apply(find_best_match)
+
     # only keep relevant columns from stadiums df
     stadiums_df = stadiums_df[['Team', 'Name', 'Latitude', 'Longitude']]
 
     result = fixtures_df.merge(
         stadiums_df,
-        left_on='mapped_team',
+        left_on='mapped_home_team',
         right_on='Team',
         how='left'
     )
 
-    unmatched = result[result['mapped_team'].isna()]
+    unmatched = result[result['mapped_home_team'].isna()]
     if not unmatched.empty:
         logger.error(f"{len(unmatched)} teams with no match: {unmatched['HomeTeam'].tolist()}")
-
-    result.drop(['mapped_team'], axis=1, inplace=True)
     
     return result
 
