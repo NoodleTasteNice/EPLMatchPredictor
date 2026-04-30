@@ -186,12 +186,12 @@ def save_duckdb(df):
     df['match_id'] = (df['match_date'].astype(str) + df['home_team'] + df['away_team'])
     con.register('temp_df', df)
 
-    initial_count = con.execute("SELECT COUNT(*) FROM matches_gold").fetchone()[0]
-
     con.execute("""
         CREATE TABLE IF NOT EXISTS matches_gold AS 
         SELECT * FROM temp_df WHERE 1=0
     """)
+    
+    initial_count = con.execute("SELECT COUNT(*) FROM matches_gold").fetchone()[0]
 
     try:
         con.execute("ALTER TABLE matches_gold ADD PRIMARY KEY (match_id)")
