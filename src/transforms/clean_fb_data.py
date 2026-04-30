@@ -36,7 +36,6 @@ column_renaming = {
     'AR': 'away_reds',
     'Latitude': 'latitude',
     'Longitude': 'longitude',
-    'Team': 'team',
     'Name': 'name'
 }
 
@@ -70,6 +69,8 @@ def map_team_names(fixtures_df, stadiums_df):
     unmatched = result[result['mapped_home_team'].isna()]
     if not unmatched.empty:
         logger.error(f"{len(unmatched)} teams with no match: {unmatched['HomeTeam'].tolist()}")
+
+    result.drop(['Team'], axis=1, inplace=True)
     
     return result
 
