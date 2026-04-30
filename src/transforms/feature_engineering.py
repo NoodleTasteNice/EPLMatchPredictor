@@ -1,6 +1,7 @@
 import pandas as pd
 from pathlib import Path
 from src.utils.logger import get_logger
+import duckdb
 
 logger = get_logger(__name__)
 
@@ -175,29 +176,68 @@ def get_h2h(all_seasons_df):
 
     return df
 
-def save_gold(df):
+def save_duckdb(df):
     script_dir = Path(__file__).resolve().parent
     root_dir = script_dir.parent.parent
-    save_path = root_dir / "data" / "gold" / "match_features" / f"all_matches.csv"
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(save_path, index=False)
-    logger.info(f"saved {len(df)} rows to gold/match_features/all_matches.csv")
+    db_path = root_dir / "data" / "gold" / "matches.duckdb"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    con = duckdb.connect(str(db_path))
+    df['match_id'] = (df['match_date'].astype(str) + df['home_team'] + df['away_team'])
+    con.register('temp_df', df)
+
+    initial_count = con.execute("SELECT COUNT(*) FROM matches_gold").fetchone()[0]
+
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS matches_gold AS 
+        SELECT * FROM temp_df WHERE 1=0
+    """)
+
+    try:
+        con.execute("ALTER TABLE matches_gold ADD PRIMARY KEY (match_id)")
+    except:
+        pass 
+
+    con.execute("""
+        INSERT INTO matches_gold 
+        SELECT * FROM temp_df
+        ON CONFLICT (match_id) DO NOTHING
+    """)
+
+    final_count = con.execute("SELECT COUNT(*) FROM matches_gold").fetchone()[0]
+    rows_newly_added = final_count - initial_count
+
+    logger.info(f"Database updated, rows added: {rows_newly_added}")
+    con.close()
 
 def run(mode='current'):
     script_dir = Path(__file__).resolve().parent
     root_dir = script_dir.parent.parent
 
-    seasons = historical_seasons if mode == 'historical' else historical_seasons + [current_season]
+    if mode == 'historical':
+        seasons = historical_seasons
+        all_dfs = []
+        for season in seasons:
+            fixtures_df, weather_df = load_silver(season)
+            merged = join_tables(fixtures_df, weather_df)
+            merged['season'] = season
+            all_dfs.append(merged)
+        combined_df = pd.concat(all_dfs)
+    else:
+        # pull everything currently in db
+        con = duckdb.connect(str(root_dir / "data" / "gold" / "matches.duckdb"))
+        historical_df = con.execute("SELECT * FROM matches_gold").df()
+        con.close()
 
-    # load all seasons together for h2h calculation
-    all_dfs = []
-    for season in seasons:
-        fixtures_df, weather_df = load_silver(season)
-        merged = join_tables(fixtures_df, weather_df)
-        merged['season'] = season
-        all_dfs.append(merged)
+        # load the new weekly data
+        new_fixtures, new_weather = load_silver(current_season)
+        new_merged = join_tables(new_fixtures, new_weather)
+        new_merged['season'] = current_season
 
-    combined_df = pd.concat(all_dfs).sort_values('match_date').reset_index(drop=True)
+        # combine them for rolling_form and h2h calculation
+        combined_df = pd.concat([historical_df, new_merged])
+
+    combined_df = combined_df.sort_values('match_date').reset_index(drop=True)
 
     # encode result 
     result_map = {'H': 1, 'D': 0, 'A': -1}
@@ -208,7 +248,7 @@ def run(mode='current'):
 
     # feature engineering 
     res = create_features(combined_df)
-    save_gold(res)
+    save_duckdb(res)
 
 if __name__ == '__main__':
     run(mode='historical')
