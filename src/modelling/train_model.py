@@ -63,7 +63,7 @@ def train_goals_model(X_train, y_train):
     return reg
 
 def save_model(model, filename):
-    model_path = Path(__file__).resolve().parent.parent / "models" / filename
+    model_path = Path(__file__).resolve().parent.parent.parent / "models" / filename
     model_path.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(model, model_path)
     logger.info(f"Model saved to {model_path}")
