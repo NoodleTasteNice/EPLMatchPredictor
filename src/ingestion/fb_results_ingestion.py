@@ -5,6 +5,9 @@ from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+HISTORICAL_SEASONS = ['1516', '1617', '1718', '1819', '1920', '2021', '2122', '2223', '2324', '2425']
+CURRENT_SEASON = '2526'
+
 def get_results(season):
 
     url = f'https://www.football-data.co.uk/mmz4281/{season}/E0.csv'
@@ -30,11 +33,15 @@ def get_results(season):
     
     logger.info(f"saved {season} data")
 
+def run_ingestion(mode='current'):
+    if mode == 'historical':
+        logger.info("Starting historical backfill")
+        for season in HISTORICAL_SEASONS:
+            get_results(season)
+            time.sleep(2)
+    else:
+        logger.info(f"Running update for season {CURRENT_SEASON}")
+        get_results(CURRENT_SEASON)
+
 if __name__ == '__main__':
-    seasons = ['1516', '1617', '1718', '1819', '1920', '2021', '2122', '2223', '2324', '2425']
-
-    for season in seasons:
-        get_results(season)
-        # sleep to avoid rate limits
-        time.sleep(6)
-
+    run_ingestion()
