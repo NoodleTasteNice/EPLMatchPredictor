@@ -63,8 +63,8 @@ def process_season_weather(season):
         existing_weather_df = pd.read_csv(save_path)
         # create a unique key to check for existing records
         existing_keys = set(existing_weather_df['match_date'].astype(str) + 
-                            existing_weather_df['home_team'].astype(str) +
-                            existing_weather_df['away_team'].astype(str))
+                            existing_weather_df['latitude'].astype(str) +
+                            existing_weather_df['longitude'].astype(str))
     else:
         existing_weather_df = pd.DataFrame()
         existing_keys = set()
@@ -75,10 +75,9 @@ def process_season_weather(season):
     for _, row in df.iterrows():
         date_obj = pd.to_datetime(row['match_date'])
         date_str = date_obj.strftime("%Y-%m-%d")
-        home_team, away_team = row['home_team'], row['away_team']
         lat, lon = row['latitude'], row['longitude']
         
-        key = f"{date_str}{home_team}{away_team}"
+        key = f"{date_str}{lat}{lon}"
         
         if key in existing_keys:
             continue

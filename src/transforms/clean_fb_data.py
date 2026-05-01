@@ -119,4 +119,4 @@ def run(mode='current'):
         clean_season(season, stadiums_df)
 
 if __name__ == '__main__':
-    run(mode='historical')
+    run()

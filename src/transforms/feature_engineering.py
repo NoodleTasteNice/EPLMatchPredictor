@@ -223,22 +223,30 @@ def run(mode='current'):
             fixtures_df, weather_df = load_silver(season)
             merged = join_tables(fixtures_df, weather_df)
             merged['season'] = season
+            
+            # calculate rolling form features season by season, start of each season 
+            # should not be influenced by previous season form
+            merged = create_features(merged)
             all_dfs.append(merged)
+
         combined_df = pd.concat(all_dfs)
     else:
         # pull everything currently in db
         con = duckdb.connect(str(root_dir / "data" / "gold" / "matches.duckdb"))
-        historical_df = con.execute("SELECT * FROM matches_gold").df()
+        historical_df = con.execute(f"SELECT * FROM matches_gold WHERE season != '{current_season}'").df()
         con.close()
 
-        # load the new weekly data
+        # load the current seasons data
         new_fixtures, new_weather = load_silver(current_season)
         new_merged = join_tables(new_fixtures, new_weather)
         new_merged['season'] = current_season
 
+        new_merged = create_features(new_merged)
+
         # combine them for rolling_form and h2h calculation
         combined_df = pd.concat([historical_df, new_merged])
 
+    combined_df['match_date'] = pd.to_datetime(combined_df['match_date'])
     combined_df = combined_df.sort_values('match_date').reset_index(drop=True)
 
     # encode result 
@@ -248,9 +256,10 @@ def run(mode='current'):
     # calculate h2h across all seasons
     combined_df = get_h2h(combined_df)
 
-    # feature engineering 
-    res = create_features(combined_df)
-    save_duckdb(res)
+    if mode == 'historical':
+        save_duckdb(combined_df)
+    else:
+        save_duckdb(combined_df[combined_df['season'] == current_season].copy())
 
 if __name__ == '__main__':
-    run(mode='historical')
+    run()

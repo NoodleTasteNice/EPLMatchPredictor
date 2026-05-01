@@ -33,8 +33,8 @@ WINNER_TARGET = 'ft_result'
 GOALS_TARGET = 'total_goals'
 
 # train on historical seasons, test on most recent season
-TRAIN_SEASONS = ['1516', '1617', '1718', '1819', '1920', '2021', '2122', '2223', '2324']
-TEST_SEASON = '2425'
+TRAIN_SEASONS = ['1516', '1617', '1718', '1819', '1920', '2021', '2122', '2223', '2324', '2425']
+TEST_SEASON = '2526'
 
 def load_gold():
     ROOT = Path(__file__).resolve().parent.parent.parent
