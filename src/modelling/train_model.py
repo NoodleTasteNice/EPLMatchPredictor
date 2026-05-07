@@ -3,8 +3,6 @@ import pandas as pd
 from pathlib import Path
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, accuracy_score
-import mlflow
-import mlflow.sklearn
 from src.utils.logger import get_logger
 from sklearn.model_selection import GridSearchCV
 import joblib
