@@ -46,8 +46,7 @@ def append_to_duckdb(df: pd.DataFrame, layer: str, table: str, key: str = None):
                 INSERT INTO {table}
                 SELECT df.*
                 FROM df
-                LEFT JOIN {table} t
-                ON df.{key} = t.{key}
+                LEFT JOIN {table} t ON df.{key} = t.{key}
                 WHERE t.{key} IS NULL
             """)
 

@@ -48,15 +48,17 @@ def get_weather(lat, lon, date_str):
         "temp_max": r["daily"]["temperature_2m_max"][0],
         "precipitation_mm": r["daily"]["precipitation_sum"][0],
         "windspeed_kmh": r["daily"]["windspeed_10m_max"][0],
-        "weather_key": f"{date_str}_{lat}_{lon}"
+        "weather_key": f"{date_str}_{lat:.4f}_{lon:.4f}"
     }
 
 def get_existing_keys(season):
     try:
-        existing_df = read_from_duckdb(layer="bronze", table="weather", partition = 'season', partition_val = season)
-        return set(existing_df['weather_key'].astype(str))
+        existing_df = read_from_duckdb(layer="bronze", table="weather", partition='season', partition_val=season)
+        logger.info(f"Found {len(existing_df)} existing weather rows for season {season}")
+        keys = set(existing_df['weather_key'].astype(str))
+        return keys
     except Exception as e:
-        print(e)
+        logger.warning(f"Could not load existing keys: {e}")
         return set()
     
 def process_season_weather(season: str):
@@ -66,7 +68,7 @@ def process_season_weather(season: str):
     stadiums_df = read_from_duckdb(layer='bronze', table='stadiums')
     existing_keys = get_existing_keys(season)
 
-    mapped_df = map_team_names(fixtures_df)
+    mapped_df = map_team_names(fixtures_df, stadiums_df)
     combined_df = join_venue(mapped_df, stadiums_df)
 
     res = []
@@ -75,9 +77,9 @@ def process_season_weather(season: str):
         date_obj = datetime.strptime(date_str, "%d/%m/%Y")
         formatted_date = date_obj.strftime("%Y-%m-%d")
         lat, lon = row['Latitude'], row['Longitude']
-        home_team = row['HomeTeam']
-        away_team = row['AwayTeam']
-        key = f"{formatted_date}_{lat}_{lon}"
+        home_team, away_team = row['HomeTeam'], row['AwayTeam']
+        key = f"{formatted_date}_{lat:.4f}_{lon:.4f}"
+            
         if key in existing_keys:
             continue
 
@@ -88,7 +90,9 @@ def process_season_weather(season: str):
     if res:
         new_df = pd.DataFrame(res)
         new_df['season'] = season
-        append_to_duckdb(new_df, layer="bronze", table="weather", key='weather_id')
+        new_df = new_df[['latitude', 'longitude', 'match_date', 'temp_min', 'temp_max', 
+                      'precipitation_mm', 'windspeed_kmh', 'season', 'weather_key']]
+        append_to_duckdb(new_df, layer="bronze", table="weather", key='weather_key')
         logger.info(f"Added {len(res)} new rows for season {season}")
     else:
         logger.info(f"No new weather data for season {season}")
@@ -100,4 +104,3 @@ def run_weather_ingestion(mode: str = 'current'):
 
 if __name__ == '__main__':
     run_weather_ingestion()
-

@@ -92,12 +92,9 @@ def standardise_dates(df):
     return df
 
 def clean_season(season, stadiums_df):
-    script_dir = Path(__file__).resolve().parent
-    root_dir = script_dir.parent.parent
-    source_path = root_dir / "data" / "bronze" / "raw_fb_data" / f"season_{season}.csv"
     logger.info(f"cleaning fixtures for {season} season")
 
-    df = pd.read_csv(source_path)
+    df = read_from_duckdb(layer='bronze', table='fixtures', partition='season', partition_val=season)
 
     # map team names
     df = map_team_names(df, stadiums_df)
@@ -108,21 +105,29 @@ def clean_season(season, stadiums_df):
     # standardise dates
     df = standardise_dates(df)
 
-    # add season col for partitioning
-    df['season'] = season
-
     df['match_id'] = df['match_date'].dt.strftime('%Y-%m-%d') + '_' + df['home_team_alt'] + '_' + df['away_team_alt']
+    target_order = [
+        'home_team', 'away_team', 'ft_home_goals', 'ft_away_goals', 
+        'ft_result', 'ht_home_goals', 'ht_away_goals', 'ht_result', 
+        'referee', 'home_shots', 'away_shots', 'home_sot', 
+        'away_sot', 'home_fouls', 'away_fouls', 'home_corners', 
+        'away_corners', 'home_yellows', 'away_yellows', 'home_reds', 
+        'away_reds', 'home_team_alt', 'away_team_alt', 'match_date', 
+        'season', 'match_id'
+    ]
+
+    # Reorder before saving
+    df = df[target_order]
 
     append_to_duckdb(df, layer="silver", table="fixtures", key='match_id')
     logger.info(f"saved to duckdb")
 
 def run(mode='current'):
     stadiums_df = read_from_duckdb(layer='bronze', table='stadiums')
-
     seasons = historical_seasons if mode == 'historical' else [current_season]
 
     for season in seasons:
         clean_season(season, stadiums_df)
 
 if __name__ == '__main__':
-    run(mode='historical')
+    run()

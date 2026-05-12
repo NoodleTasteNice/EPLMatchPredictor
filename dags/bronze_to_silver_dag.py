@@ -20,7 +20,7 @@ with DAG(
     trigger_silver_to_gold = TriggerDagRunOperator(
         task_id='trigger_silver_to_gold',
         trigger_dag_id='silver_to_gold',
-        wait_for_completion=True,
+        wait_for_completion=False,
     )
 
     clean_fixtures_task >> trigger_silver_to_gold
