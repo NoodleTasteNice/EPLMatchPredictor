@@ -4,14 +4,16 @@ from datetime import datetime
 from pathlib import Path
 import pandas as pd
 from src.utils.logger import get_logger
+from src.storage.read_duckdb import read_from_duckdb
+from src.storage.write_duckdb import append_to_duckdb
+from src.processing.clean_fb_data import map_team_names, join_venue
 
 logger = get_logger(__name__)
 
 HISTORICAL_SEASONS = ['1516', '1617', '1718', '1819', '1920', '2021', '2122', '2223', '2324', '2425']
 CURRENT_SEASON = '2526'
 
-def get_weather(lat, lon, match_date):
-    date_str = match_date.strftime("%Y-%m-%d")
+def get_weather(lat, lon, date_str):
 
     if lat is None or lon is None:
         logger.warning(f"no location provided for match on {date_str}")
@@ -46,66 +48,56 @@ def get_weather(lat, lon, match_date):
         "temp_max": r["daily"]["temperature_2m_max"][0],
         "precipitation_mm": r["daily"]["precipitation_sum"][0],
         "windspeed_kmh": r["daily"]["windspeed_10m_max"][0],
+        "weather_key": f"{date_str}_{lat}_{lon}"
     }
 
-def process_season_weather(season):
-    script_dir = Path(__file__).resolve().parent
-    root_dir = script_dir.parent.parent
+def get_existing_keys(season):
+    try:
+        existing_df = read_from_duckdb(layer="bronze", table="weather", partition = 'season', partition_val = season)
+        return set(existing_df['weather_key'].astype(str))
+    except Exception as e:
+        print(e)
+        return set()
+    
+def process_season_weather(season: str):
+    logger.info(f"Processing weather for season {season}")
 
-    source_file = root_dir / "data" / "silver" / "cleaned_fb_data" / f"season_{season}.csv"
-    save_path = root_dir / "data" / "bronze" / "weather_data" / f"season_{season}.csv"
-    save_path.parent.mkdir(parents=True, exist_ok=True)
+    fixtures_df = read_from_duckdb(layer="bronze", table="fixtures", partition = 'season', partition_val = season)
+    stadiums_df = read_from_duckdb(layer='bronze', table='stadiums')
+    existing_keys = get_existing_keys(season)
 
-    df = pd.read_csv(source_file)
-
-    # Incremental load, load existing weather if it exists to avoid re-fetching
-    if save_path.exists():
-        existing_weather_df = pd.read_csv(save_path)
-        # create a unique key to check for existing records
-        existing_keys = set(existing_weather_df['match_date'].astype(str) + 
-                            existing_weather_df['latitude'].astype(str) +
-                            existing_weather_df['longitude'].astype(str))
-    else:
-        existing_weather_df = pd.DataFrame()
-        existing_keys = set()
+    mapped_df = map_team_names(fixtures_df)
+    combined_df = join_venue(mapped_df, stadiums_df)
 
     res = []
-    new_count = 0
-
-    for _, row in df.iterrows():
-        date_obj = pd.to_datetime(row['match_date'])
-        date_str = date_obj.strftime("%Y-%m-%d")
-        lat, lon = row['latitude'], row['longitude']
-        
-        key = f"{date_str}{lat}{lon}"
-        
+    for _, row in combined_df.iterrows():
+        date_str = row['Date']
+        date_obj = datetime.strptime(date_str, "%d/%m/%Y")
+        formatted_date = date_obj.strftime("%Y-%m-%d")
+        lat, lon = row['Latitude'], row['Longitude']
+        home_team = row['HomeTeam']
+        away_team = row['AwayTeam']
+        key = f"{formatted_date}_{lat}_{lon}"
         if key in existing_keys:
             continue
-        
-        logger.info(f"Fetching weather for {row['home_team']} vs {row['away_team']} on ({date_str})")
-        weather_data = get_weather(lat, lon, date_obj)
-        
-        if weather_data:
-            res.append(weather_data)
-            new_count += 1
-            time.sleep(0.1) 
+
+        logger.info(f"Fetching weather for {home_team} vs {away_team} on {date_str}")
+        res.append(get_weather(lat, lon, formatted_date))
+        time.sleep(0.1)
 
     if res:
-        new_weather_df = pd.DataFrame(res)
-        final_df = pd.concat([existing_weather_df, new_weather_df]).drop_duplicates()
-        final_df.to_csv(save_path, index=False)
-        logger.info(f"Added {new_count} rows for season {season}")
+        new_df = pd.DataFrame(res)
+        new_df['season'] = season
+        append_to_duckdb(new_df, layer="bronze", table="weather", key='weather_id')
+        logger.info(f"Added {len(res)} new rows for season {season}")
     else:
         logger.info(f"No new weather data for season {season}")
 
-def run_weather_ingestion(mode='current'):
-    if mode == 'historical':
-        for season in HISTORICAL_SEASONS:
-            process_season_weather(season)
-    else:
-        process_season_weather(CURRENT_SEASON)
+def run_weather_ingestion(mode: str = 'current'):
+    seasons = HISTORICAL_SEASONS if mode == 'historical' else [CURRENT_SEASON]
+    for season in seasons:
+        process_season_weather(season)
 
 if __name__ == '__main__':
     run_weather_ingestion()
-
 

@@ -49,3 +49,7 @@ data/
 *.csv
 *.parquet
 *.json
+
+# models
+models/*.pkl
+

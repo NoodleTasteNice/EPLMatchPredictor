@@ -1,38 +1,8 @@
 import pandas as pd
 from pathlib import Path
 from src.utils.logger import get_logger
-import duckdb
 
 logger = get_logger(__name__)
-
-historical_seasons = ['1516', '1617', '1718', '1819', '1920', '2021', '2122', '2223', '2324', '2425']
-current_season = '2526'
-
-def load_silver(season):
-    script_dir = Path(__file__).resolve().parent
-    root_dir = script_dir.parent.parent
-
-    fixtures_path = root_dir / "data" / "silver" / "cleaned_fb_data" / f"season_{season}.csv"
-    weather_path = root_dir / "data" / "bronze" / "weather_data" / f"season_{season}.csv"
-
-    fixtures_df = pd.read_csv(fixtures_path)
-    weather_df = pd.read_csv(weather_path)
-
-    return fixtures_df, weather_df
-
-def join_tables(fixtures_df, weather_df):
-    merged = fixtures_df.merge(
-        weather_df,
-        on=['match_date', 'latitude', 'longitude'],
-        how='left'
-    )
-
-    # check how many rows lost weather data
-    missing_weather = merged['temp_max'].isna().sum()
-    if missing_weather > 0:
-        logger.warning(f"{missing_weather} fixtures missing weather data")
-
-    return merged
 
 def calculate_rest_days(df):
     df = df.sort_values('match_date').reset_index(drop=True)
@@ -171,95 +141,9 @@ def get_h2h(all_seasons_df):
     )
 
     # fill any nulls with average
-    league_avg = (df['ft_result'] == 'H').mean()
-    df['h2h_home_win_rate'] = df['h2h_home_win_rate'].fillna(league_avg)
+    df['h2h_home_win_rate'] = df['h2h_home_win_rate'].fillna(0)
+    df['h2h_team_a_win_rate'] = df['h2h_team_a_win_rate'].fillna(0)
 
-    df = df.drop(columns=['h2h_key', 'team_a', 'team_a_win', 'h2h_team_a_win_rate'])
+    df = df.drop(columns=['h2h_key', 'team_a_win', 'team_a', 'h2h_team_a_win_rate'])
 
     return df
-
-def save_duckdb(df):
-    script_dir = Path(__file__).resolve().parent
-    root_dir = script_dir.parent.parent
-    db_path = root_dir / "data" / "gold" / "matches.duckdb"
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-
-    con = duckdb.connect(str(db_path))
-    df['match_id'] = (df['match_date'].astype(str) + df['home_team'] + df['away_team'])
-    con.register('temp_df', df)
-
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS matches_gold AS 
-        SELECT * FROM temp_df WHERE 1=0
-    """)
-    
-    initial_count = con.execute("SELECT COUNT(*) FROM matches_gold").fetchone()[0]
-
-    try:
-        con.execute("ALTER TABLE matches_gold ADD PRIMARY KEY (match_id)")
-    except:
-        pass 
-
-    con.execute("""
-        INSERT INTO matches_gold 
-        SELECT * FROM temp_df
-        ON CONFLICT (match_id) DO NOTHING
-    """)
-
-    final_count = con.execute("SELECT COUNT(*) FROM matches_gold").fetchone()[0]
-    rows_newly_added = final_count - initial_count
-
-    logger.info(f"Database updated, rows added: {rows_newly_added}")
-    con.close()
-
-def run(mode='current'):
-    script_dir = Path(__file__).resolve().parent
-    root_dir = script_dir.parent.parent
-
-    if mode == 'historical':
-        seasons = historical_seasons
-        all_dfs = []
-        for season in seasons:
-            fixtures_df, weather_df = load_silver(season)
-            merged = join_tables(fixtures_df, weather_df)
-            merged['season'] = season
-            
-            # calculate rolling form features season by season, start of each season 
-            # should not be influenced by previous season form
-            merged = create_features(merged)
-            all_dfs.append(merged)
-
-        combined_df = pd.concat(all_dfs)
-    else:
-        # pull everything currently in db
-        con = duckdb.connect(str(root_dir / "data" / "gold" / "matches.duckdb"))
-        historical_df = con.execute(f"SELECT * FROM matches_gold WHERE season != '{current_season}'").df()
-        con.close()
-
-        # load the current seasons data
-        new_fixtures, new_weather = load_silver(current_season)
-        new_merged = join_tables(new_fixtures, new_weather)
-        new_merged['season'] = current_season
-
-        new_merged = create_features(new_merged)
-
-        # combine them for rolling_form and h2h calculation
-        combined_df = pd.concat([historical_df, new_merged])
-
-    combined_df['match_date'] = pd.to_datetime(combined_df['match_date'])
-    combined_df = combined_df.sort_values('match_date').reset_index(drop=True)
-
-    # encode result 
-    result_map = {'H': 1, 'D': 0, 'A': -1}
-    combined_df['result_encoded'] = combined_df['ft_result'].map(result_map)
-
-    # calculate h2h across all seasons
-    combined_df = get_h2h(combined_df)
-
-    if mode == 'historical':
-        save_duckdb(combined_df)
-    else:
-        save_duckdb(combined_df[combined_df['season'] == current_season].copy())
-
-if __name__ == '__main__':
-    run()

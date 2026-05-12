@@ -25,22 +25,42 @@ FEATURES = [
     'temp_max',
     'precipitation_mm',
     'windspeed_kmh',
+    'is_weekend',
+    'day_of_week',
+    'month'
 ]
 
-WINNER_TARGET = 'ft_result'
+WINNER_TARGET = 'result_encoded'
 GOALS_TARGET = 'total_goals'
 
 # train on historical seasons, test on most recent season
 TRAIN_SEASONS = ['1516', '1617', '1718', '1819', '1920', '2021', '2122', '2223', '2324', '2425']
 TEST_SEASON = '2526'
 
-def load_gold():
-    ROOT = Path(__file__).resolve().parent.parent.parent
-    DB_PATH = ROOT / "data" / "gold" / "matches.duckdb"
+def load_gold() -> pd.DataFrame:
+    root = Path(__file__).resolve().parent.parent.parent
+    db_path = root / "data" / "gold" / "gold_football.db"
 
-    con = duckdb.connect(str(DB_PATH), read_only=True)
-    df = con.execute("SELECT * FROM matches_gold ORDER BY match_date DESC").df()
-    con.close()
+    with duckdb.connect(str(db_path), read_only=True) as con:
+        df = con.execute("""
+            SELECT
+                f.*,
+                ht.team_name   AS home_team,
+                awt.team_name  AS away_team,
+                r.referee_name AS referee,
+                d.is_weekend,
+                d.month,
+                d.day_of_week
+            FROM fact_matches f
+            JOIN dim_team    ht  ON f.home_team_id = ht.team_id
+            JOIN dim_team    awt ON f.away_team_id = awt.team_id
+            JOIN dim_referee r   ON f.referee_id   = r.referee_id
+            JOIN dim_date    d   ON f.date_id      = d.date_id
+            WHERE f.result_encoded IS NOT NULL
+            ORDER BY d.full_date
+        """).df()
+
+    logger.info(f"Loaded {len(df)} rows from gold")
     return df
 
 def tune_model(X_train, y_train):

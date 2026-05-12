@@ -2,6 +2,7 @@ import pandas as pd
 from pathlib import Path
 import time
 from src.utils.logger import get_logger
+from src.storage.write_duckdb import write_to_duckdb, append_to_duckdb
 
 logger = get_logger(__name__)
 
@@ -19,18 +20,15 @@ def get_results(season):
                        'AY', 'HR', 'AR']
     results = results[columns_to_keep]
 
-    # get target directory 
-    script_dir = Path(__file__).resolve().parent
-    root_dir = script_dir.parent.parent
-    save_dir = root_dir / "data" / 'bronze'/ "raw_fb_data"
+    results["match_id"] = (
+        results["Date"].astype(str) +
+        results["HomeTeam"] +
+        results["AwayTeam"]
+    )
 
-    # create the directory if it doesn't exist
-    save_dir.mkdir(parents=True, exist_ok=True)
-
-    # save the file
-    file_path = save_dir / f"season_{season}.csv"
-    results.to_csv(file_path, index=False)
+    results['season'] = season
     
+    append_to_duckdb(results, layer='bronze', table='fixtures', key='match_id')
     logger.info(f"saved {season} data")
 
 def run_ingestion(mode='current'):

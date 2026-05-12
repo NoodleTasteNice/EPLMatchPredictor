@@ -2,44 +2,20 @@ from thefuzz import process
 import pandas as pd
 from pathlib import Path
 from src.utils.logger import get_logger
+from src.storage.write_duckdb import append_to_duckdb
+from src.storage.read_duckdb import read_from_duckdb
 
 logger = get_logger(__name__)
 
 historical_seasons = ['1516', '1617', '1718', '1819', '1920', '2021', '2122', '2223', '2324', '2425']
 current_season = '2526'
-manual_overrides = {
-    'Man United': 'Manchester United',
-    'Man City': 'Manchester City',
-}
-
-
-column_renaming = {
-    'HomeTeam': 'home_team',
-    'AwayTeam': 'away_team',
-    'FTHG': 'ft_home_goals',
-    'FTAG': 'ft_away_goals',
-    'FTR': 'ft_result',
-    'HTHG': 'ht_home_goals',
-    'HTAG': 'ht_away_goals',
-    'HTR': 'ht_result',
-    'HS': 'home_shots',
-    'AS': 'away_shots',
-    'HST': 'home_sot',
-    'AST': 'away_sot',
-    'HC': 'home_corners',
-    'AC': 'away_corners',
-    'HF': 'home_fouls',
-    'AF': 'away_fouls',
-    'HY': 'home_yellows',
-    'AY': 'away_yellows',
-    'HR': 'home_reds',
-    'AR': 'away_reds',
-    'Latitude': 'latitude',
-    'Longitude': 'longitude',
-    'Name': 'name'
-}
 
 def map_team_names(fixtures_df, stadiums_df):
+
+    manual_overrides = {
+    'Man United': 'Manchester United',
+    'Man City': 'Manchester City',
+    }
 
     stadium_teams = stadiums_df['Team'].tolist()
     
@@ -56,6 +32,9 @@ def map_team_names(fixtures_df, stadiums_df):
     fixtures_df['mapped_home_team'] = fixtures_df['HomeTeam'].apply(find_best_match)
     fixtures_df['mapped_away_team'] = fixtures_df['AwayTeam'].apply(find_best_match)
 
+    return fixtures_df
+
+def join_venue(fixtures_df, stadiums_df):
     # only keep relevant columns from stadiums df
     stadiums_df = stadiums_df[['Team', 'Name', 'Latitude', 'Longitude']]
 
@@ -75,27 +54,52 @@ def map_team_names(fixtures_df, stadiums_df):
     return result
 
 def rename_columns(df):
+    column_renaming = {
+        'HomeTeam': 'home_team',
+        'AwayTeam': 'away_team',
+        'FTHG': 'ft_home_goals',
+        'FTAG': 'ft_away_goals',
+        'FTR': 'ft_result',
+        'HTHG': 'ht_home_goals',
+        'HTAG': 'ht_away_goals',
+        'HTR': 'ht_result',
+        'HS': 'home_shots',
+        'AS': 'away_shots',
+        'HST': 'home_sot',
+        'AST': 'away_sot',
+        'HC': 'home_corners',
+        'AC': 'away_corners',
+        'HF': 'home_fouls',
+        'AF': 'away_fouls',
+        'HY': 'home_yellows',
+        'AY': 'away_yellows',
+        'HR': 'home_reds',
+        'AR': 'away_reds',
+        'Latitude': 'latitude',
+        'Longitude': 'longitude',
+        'Name': 'stadium_name',
+        'mapped_away_team': 'away_team_alt',
+        'mapped_home_team': 'home_team_alt',
+        'Referee': 'referee'
+    }
     df = df.rename(columns=column_renaming)
     return df
 
 def standardise_dates(df):
-    df['Date'] = pd.to_datetime(df['Date'], dayfirst=True)
-    df = df.rename(columns={'Date': 'match_date'})
+    # standardise with weather data to YYYY-MM-DD
+    df['match_date'] = pd.to_datetime(df['Date'], dayfirst=True)
+    df = df.drop(columns=['Date'])
     return df
 
 def clean_season(season, stadiums_df):
     script_dir = Path(__file__).resolve().parent
     root_dir = script_dir.parent.parent
-
     source_path = root_dir / "data" / "bronze" / "raw_fb_data" / f"season_{season}.csv"
-    save_path = root_dir / "data" / "silver" / "cleaned_fb_data" / f"season_{season}.csv"
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-
     logger.info(f"cleaning fixtures for {season} season")
 
     df = pd.read_csv(source_path)
 
-    # map team names and join stadium
+    # map team names
     df = map_team_names(df, stadiums_df)
 
     # rename columns 
@@ -104,14 +108,16 @@ def clean_season(season, stadiums_df):
     # standardise dates
     df = standardise_dates(df)
 
-    df.to_csv(save_path, index=False)
-    logger.info(f"saved to silver/cleaned_fb_data/season_{season}.csv")
+    # add season col for partitioning
+    df['season'] = season
+
+    df['match_id'] = df['match_date'].dt.strftime('%Y-%m-%d') + '_' + df['home_team_alt'] + '_' + df['away_team_alt']
+
+    append_to_duckdb(df, layer="silver", table="fixtures", key='match_id')
+    logger.info(f"saved to duckdb")
 
 def run(mode='current'):
-    script_dir = Path(__file__).resolve().parent
-    root_dir = script_dir.parent.parent
-    stadium_path = root_dir / "data" / "bronze" / "stadiums" / "stadiums.csv"
-    stadiums_df = pd.read_csv(stadium_path)
+    stadiums_df = read_from_duckdb(layer='bronze', table='stadiums')
 
     seasons = historical_seasons if mode == 'historical' else [current_season]
 
@@ -119,4 +125,4 @@ def run(mode='current'):
         clean_season(season, stadiums_df)
 
 if __name__ == '__main__':
-    run()
+    run(mode='historical')
